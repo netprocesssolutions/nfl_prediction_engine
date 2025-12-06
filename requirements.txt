@@ -1,0 +1,22 @@
+# NFL Fantasy Prediction Engine - Phase 1 Requirements
+# Install with: pip install -r requirements.txt
+
+# Core data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# NFL data (EXCLUSIVE - do NOT use nfl_data_py)
+nflreadpy>=0.1.0
+
+# API requests
+requests>=2.28.0
+
+# Database (SQLite is built-in but we may need tools)
+# No additional packages needed for SQLite
+
+# Optional: For faster parquet reading
+pyarrow>=12.0.0
+
+# Development tools (optional)
+# pytest>=7.0.0
+# black>=23.0.0
