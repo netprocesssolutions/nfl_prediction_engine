@@ -1,0 +1,67 @@
+NFL_PREDICTION_ENGINE/
+├── .venv/
+├── operational_documents/
+├── phase_1/
+│   ├── __pycache__/
+│   ├── config/
+│   │   ├── __pycache__/
+│   │   ├── database/
+│   │   │   └── nfl_data.db
+│   │   ├── logs/
+│   │   ├── __init__.py
+│   │   └── settings.py
+│   ├── database/
+│   │   └── nfl_data.db
+│   ├── ingestion_scripts/
+│   │   ├── __init__.py
+│   │   ├── 2023 Player Stats.csv
+│   │   ├── 2024 Player Stats.csv
+│   │   ├── 2025 Player Stats.csv
+│   │   ├── 2025 Team Stats.csv
+│   │   ├── bet_repository.py
+│   │   ├── create_defense_table.py
+│   │   ├── create_schema.py
+│   │   ├── DATABASE_AUDIT_AND_FIX.py
+│   │   ├── delete_defense_table.py
+│   │   ├── fix_phase1_issues.py
+│   │   ├── ingest_betting_lines.py
+│   │   ├── ingest_betting.py
+│   │   ├── ingest_games.py
+│   │   ├── ingest_nfl_data_py.py
+│   │   ├── ingest_nflverse.py
+│   │   ├── ingest_pbp.py
+│   │   ├── ingest_players.py
+│   │   ├── ingest_stats_defenders.py
+│   │   ├── ingest_stats_defense.py
+│   │   ├── ingest_stats_offense.py
+│   │   ├── ingest_teams.py
+│   │   ├── ingest_weather.py
+│   │   ├── load_sample_data.py
+│   │   ├── load_season_defense_stats.py
+│   │   ├── README (1).md
+│   │   ├── README.md
+│   │   ├── run_master_pipeline_v3.py
+│   │   ├── run_master_pipeline.py
+│   │   ├── run_pipeline.py
+│   │   ├── schema_betting_update.py
+│   │   ├── schema_enhancement.py
+│   │   ├── schema_pbp.py
+│   │   └── settings_patch.py
+│   ├── logs/
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── database.py
+│   │   └── logger.py
+│   ├── validation/
+│   │   ├── __init__.py
+│   │   └── validate_data.py
+│   ├── nflreadpy_options.txt
+│   ├── Phase 1 Installation Guide.docx
+│   └── README.md
+├── phase_2/
+├── planning/
+├── .gitattributes
+├── .gitignore
+├── project_directory.txt
+├── README.md
+└── requirements.txt
