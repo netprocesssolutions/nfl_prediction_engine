@@ -18,6 +18,55 @@ from ..features.team_defense import build_team_defense_features
 from ..features.ngs import build_ngs_features
 from ..features.schedule_context import build_schedule_features
 from ..features.weather import build_weather_features
+from ..features.pbp_features import calculate_all_pbp_features, get_connection as get_pbp_connection
+
+
+def build_pbp_features(season: int, week: int) -> pd.DataFrame:
+    """
+    Build PBP-based features for all players in a week.
+
+    Returns DataFrame with columns: player_id, game_id, season, week, pbp_*
+    """
+    # Get base player-games for this week
+    base_query = """
+    SELECT DISTINCT
+        pgs.player_id, pgs.game_id, pgs.season, pgs.week
+    FROM player_game_stats pgs
+    WHERE pgs.season = ? AND pgs.week = ?
+    """
+    base_df = read_sql(base_query, params=[season, week])
+
+    if base_df.empty:
+        return pd.DataFrame()
+
+    # Get ID mapping
+    id_query = "SELECT sleeper_id, gsis_id FROM player_id_mapping WHERE gsis_id IS NOT NULL"
+    id_df = read_sql(id_query)
+    sleeper_to_gsis = dict(zip(id_df["sleeper_id"].astype(str), id_df["gsis_id"]))
+
+    # Calculate PBP features for each player
+    conn = get_pbp_connection()
+    results = []
+
+    for _, row in base_df.iterrows():
+        player_id = str(row["player_id"])
+        gsis_id = sleeper_to_gsis.get(player_id)
+
+        if gsis_id:
+            features = calculate_all_pbp_features(conn, gsis_id, season, week)
+        else:
+            features = {}
+
+        features["player_id"] = row["player_id"]
+        features["game_id"] = row["game_id"]
+        features["season"] = season
+        features["week"] = week
+        results.append(features)
+
+    conn.close()
+
+    return pd.DataFrame(results)
+
 
 def _build_base_player_game_frame(season: int, week: int) -> pd.DataFrame:
     """
@@ -280,6 +329,10 @@ def build_features_for_week(
     opp_def = build_team_defense_features(season, week)
     base = _merge_feature_block(base, opp_def, prefix="oppdef_")
 
+    # 8) Play-by-play based features (EPA, air yards, CPOE, etc.)
+    pbp = build_pbp_features(season, week)
+    base = _merge_feature_block(base, pbp, prefix="pbp_")
+
     # TODO: defender matchup, archetypes, etc.
 
     # ------------------------------------------------------------------
@@ -300,6 +353,7 @@ def build_features_for_week(
         "weather_",
         "ctx_",
         "oppdef_",
+        "pbp_",
     )
     feature_cols = sorted(
         [c for c in cols if c.startswith(feature_prefixes)]
