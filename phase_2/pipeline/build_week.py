@@ -6,6 +6,8 @@ from typing import List
 
 import pandas as pd
 
+import sqlite3
+
 from ..config import FEATURE_TABLE_NAME
 from ..db import read_sql, write_dataframe, get_connection
 from ..schema import PLAYER_GAME_FEATURES_SCHEMA
@@ -13,7 +15,9 @@ from ..features.usage import build_usage_features
 from ..features.efficiency import build_efficiency_features
 from ..features.team_context import build_team_context_features
 from ..features.team_defense import build_team_defense_features
-
+from ..features.ngs import build_ngs_features
+from ..features.schedule_context import build_schedule_features
+from ..features.weather import build_weather_features
 
 def _build_base_player_game_frame(season: int, week: int) -> pd.DataFrame:
     """
@@ -200,7 +204,7 @@ def _persist_week(df: pd.DataFrame, season: int, week: int) -> None:
     Persist the given week of features into the FEATURE_TABLE_NAME.
 
     Strategy:
-        - DELETE any existing rows for (season, week) from the table.
+        - DELETE any existing rows for (season, week) from the table (if it exists).
         - APPEND the new rows.
 
     This lets you safely re-run Phase 2 for a given week as often as you want.
@@ -209,15 +213,20 @@ def _persist_week(df: pd.DataFrame, season: int, week: int) -> None:
         return
 
     with get_connection(readonly=False) as conn:
-        conn.execute(
-            f"DELETE FROM {FEATURE_TABLE_NAME} WHERE season = ? AND week = ?;",
-            (season, week),
-        )
-        conn.commit()
+        # On first run the table may not exist yet; let to_sql create it.
+        try:
+            conn.execute(
+                f"DELETE FROM {FEATURE_TABLE_NAME} WHERE season = ? AND week = ?;",
+                (season, week),
+            )
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            # Ignore "no such table" (first write); re-raise anything else.
+            if "no such table" not in str(e):
+                raise
 
-    # Append new rows
-    write_dataframe(df, FEATURE_TABLE_NAME, if_exists="append")
-
+        # Append the new rows; this will create the table on first run if needed.
+        df.to_sql(FEATURE_TABLE_NAME, conn, if_exists="append", index=False)
 
 def build_features_for_week(
     season: int,
@@ -251,33 +260,56 @@ def build_features_for_week(
     eff = build_efficiency_features(season, week)
     base = _merge_feature_block(base, eff, prefix="eff_")
 
-    # 2) Usage features
-    usage = build_usage_features(season, week)
-    base = _merge_feature_block(base, usage, prefix="usage_")
+    # 4) NGS skill/talent features (QB + WR/TE/RB)
+    ngs = build_ngs_features(season, week)
+    base = _merge_feature_block(base, ngs, prefix="ngs_")
 
-    # 3) Efficiency features (EPA & share based)
-    eff = build_efficiency_features(season, week)
-    base = _merge_feature_block(base, eff, prefix="eff_")
+    # 5) Schedule / rest / primetime context
+    sched_ctx = build_schedule_features(season, week)
+    base = _merge_feature_block(base, sched_ctx, prefix="sched_")
 
-    # 4) Team context & Vegas pre-game expectation
+    # 6) Weather / roof / surface context
+    weather = build_weather_features(season, week)
+    base = _merge_feature_block(base, weather, prefix="weather_")
+
+    # 6) Team context & Vegas pre-game expectation
     team_ctx = build_team_context_features(season, week)
     base = _merge_feature_block(base, team_ctx, prefix="ctx_")
 
-    # 5) Opponent team defense difficulty
+    # 7) Opponent team defense difficulty
     opp_def = build_team_defense_features(season, week)
     base = _merge_feature_block(base, opp_def, prefix="oppdef_")
 
     # TODO: defender matchup, archetypes, etc.
 
-    # Reorder columns to match schema identifiers + labels first, then features.
-    id_cols = PLAYER_GAME_FEATURES_SCHEMA.identifiers
-    label_cols = PLAYER_GAME_FEATURES_SCHEMA.labels
-    feature_cols = [c for c in base.columns if c not in id_cols + label_cols]
+    # ------------------------------------------------------------------
+    # Final column ordering (do NOT drop any columns, just reorder)
+    # ------------------------------------------------------------------
+    cols = list(base.columns)
 
-    ordered_cols = [c for c in id_cols if c in base.columns] + \
-                   [c for c in label_cols if c in base.columns] + \
-                   feature_cols
+    # Use schema-defined identifiers / labels where possible
+    id_cols = [c for c in getattr(PLAYER_GAME_FEATURES_SCHEMA, "identifiers", []) if c in cols]
+    label_cols = [c for c in getattr(PLAYER_GAME_FEATURES_SCHEMA, "labels", []) if c in cols]
 
+    # All the feature families we currently support
+    feature_prefixes = (
+        "usage_",
+        "eff_",
+        "ngs_",
+        "sched_",
+        "weather_",
+        "ctx_",
+        "oppdef_",
+    )
+    feature_cols = sorted(
+        [c for c in cols if c.startswith(feature_prefixes)]
+    )
+
+    # Anything else (debug / helper columns) goes at the end
+    used = set(id_cols) | set(label_cols) | set(feature_cols)
+    other_cols = [c for c in cols if c not in used]
+
+    ordered_cols = id_cols + label_cols + feature_cols + other_cols
     base = base[ordered_cols]
 
     if persist:
@@ -287,10 +319,14 @@ def build_features_for_week(
 
 
 if __name__ == "__main__":
-    # Smoke test: tweak season/week to match your DB contents if needed.
     TEST_SEASON = 2023
     TEST_WEEK = 5
 
     df_week = build_features_for_week(TEST_SEASON, TEST_WEEK, persist=False)
     print("Week features shape:", df_week.shape)
+
+    for prefix in ["usage_", "eff_", "ngs_", "sched_", "weather_", "ctx_", "oppdef_"]:
+        cols = [c for c in df_week.columns if c.startswith(prefix)]
+        print(f"{prefix} -> {len(cols)} columns")
+
     print(df_week.head())
