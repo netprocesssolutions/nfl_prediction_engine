@@ -182,3 +182,4 @@ cython_debug/
 # SQLite temporary files
 *.db-shm
 *.db-wal
+phase_1/database/nfl_data.db
