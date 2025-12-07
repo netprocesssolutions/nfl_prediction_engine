@@ -2,50 +2,44 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-import json
 import numpy as np
 import pandas as pd
 
 from ..db import read_sql
+from ..player_id_mapping import ensure_mapping_exists, get_gsis_to_sleeper_map
 
 
 def _load_player_gsis_mapping() -> pd.DataFrame:
     """
-    Load mapping from internal player_id -> gsis_id from the players table.
+    Load mapping from gsis_id -> internal player_id (Sleeper ID).
+
+    Uses the centralized player_id_mapping table.
 
     Returns a DataFrame with columns:
-        - internal_player_id
+        - internal_player_id (Sleeper ID)
         - gsis_id
     """
+    # Ensure mapping table exists
+    ensure_mapping_exists()
+
+    # Load from centralized mapping table
     df = read_sql(
         """
         SELECT
-            player_id,
-            metadata_json
-        FROM players
+            sleeper_id as internal_player_id,
+            gsis_id
+        FROM player_id_mapping
+        WHERE gsis_id IS NOT NULL
         """
     )
 
     if df.empty:
         return pd.DataFrame(columns=["internal_player_id", "gsis_id"])
 
-    def extract_gsis(meta: str) -> str | None:
-        if meta is None:
-            return None
-        try:
-            obj = json.loads(meta)
-        except Exception:
-            return None
-        return obj.get("gsis_id")
+    # Clean up gsis_id (strip whitespace)
+    df["gsis_id"] = df["gsis_id"].str.strip()
 
-    df["gsis_id"] = df["metadata_json"].apply(extract_gsis)
-    mapping = (
-        df[["player_id", "gsis_id"]]
-        .dropna(subset=["gsis_id"])
-        .rename(columns={"player_id": "internal_player_id"})
-    )
-
-    return mapping.reset_index(drop=True)
+    return df.reset_index(drop=True)
 
 
 def _load_ngs_raw(season: int, week: int) -> pd.DataFrame:

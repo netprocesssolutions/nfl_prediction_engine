@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ..db import read_sql
+from ..player_id_mapping import ensure_mapping_exists, get_gsis_to_sleeper_map
 
 
 def _safe_div(numer: pd.Series, denom: pd.Series) -> pd.Series:
@@ -30,15 +31,20 @@ def _load_efficiency_source_data(season: int, week: int) -> pd.DataFrame:
       - keys: player_id, season, week, game_id
       - position / team context
       - the raw stats needed to build EPA- and share-based efficiency metrics.
+
+    Note: nflverse_weekly_stats uses GSIS IDs, player_game_stats uses Sleeper IDs.
+    We use the player_id_mapping table to bridge these formats.
     """
-    query = """
+    # Ensure the mapping table exists
+    ensure_mapping_exists()
+
+    # First, load nflverse data with GSIS IDs
+    nflverse_query = """
         SELECT
-            w.player_id,
+            w.player_id as gsis_id,
             w.season,
             w.week,
-            pgs.game_id,
-            COALESCE(w.team, pgs.team_id) AS team,
-            pgs.opponent_team_id         AS opponent,
+            w.team,
             w.position,
             w.position_group,
 
@@ -74,20 +80,54 @@ def _load_efficiency_source_data(season: int, week: int) -> pd.DataFrame:
             w.receiving_epa
 
         FROM nflverse_weekly_stats AS w
-        LEFT JOIN player_game_stats AS pgs
-            ON pgs.player_id = w.player_id
-           AND pgs.season    = w.season
-           AND pgs.week      = w.week
-
         WHERE w.season = ?
           AND w.week   <= ?
     """
 
-    df = read_sql(query, params=[season, week])
+    df_nflverse = read_sql(nflverse_query, params=[season, week])
 
-    # Drop rows where we never matched to a game_id in player_game_stats,
-    # since we won't be able to join those back to the base frame anyway.
-    df = df[~df["game_id"].isna()].copy()
+    if df_nflverse.empty:
+        return pd.DataFrame()
+
+    # Map GSIS IDs to Sleeper IDs
+    gsis_to_sleeper = get_gsis_to_sleeper_map()
+    df_nflverse["player_id"] = df_nflverse["gsis_id"].map(gsis_to_sleeper)
+
+    # Drop rows without a valid Sleeper ID mapping
+    df_nflverse = df_nflverse[df_nflverse["player_id"].notna()].copy()
+
+    if df_nflverse.empty:
+        return pd.DataFrame()
+
+    # Now join with player_game_stats to get game_id and opponent
+    pgs_query = """
+        SELECT
+            player_id,
+            game_id,
+            season,
+            week,
+            team_id,
+            opponent_team_id
+        FROM player_game_stats
+        WHERE season = ?
+          AND week <= ?
+    """
+    df_pgs = read_sql(pgs_query, params=[season, week])
+
+    # Merge on Sleeper player_id + season + week
+    df = df_nflverse.merge(
+        df_pgs,
+        on=["player_id", "season", "week"],
+        how="inner",
+        suffixes=("", "_pgs")
+    )
+
+    # Use team from nflverse if available, otherwise from pgs
+    df["team"] = df["team"].fillna(df["team_id"])
+    df["opponent"] = df["opponent_team_id"]
+
+    # Clean up columns
+    df = df.drop(columns=["team_id", "opponent_team_id", "gsis_id"], errors="ignore")
 
     # Normalize dtypes
     for col in [
