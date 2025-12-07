@@ -179,3 +179,13 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# SQLite temporary files
+*.db-shm
+*.db-wal
+phase_1/database/nfl_data.db
+phase_1/database/*.db-shm
+phase_1/database/*.db-wal
+phase_1/database/nfl_data_from_main.db
+
+# ML model artifacts (train locally, don't commit)
+phase_4/saved_models/
