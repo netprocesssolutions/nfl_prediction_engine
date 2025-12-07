@@ -39,6 +39,7 @@ FEATURE_PREFIXES = [
     "oppdef_",
     "ngs_",
     "sched_",
+    "pbp_",  # Play-by-play based features (EPA, air yards, CPOE, success rate)
     # "ctx_",  # Vegas context - not populated yet
     # "weather_",  # Weather - not populated yet
 ]
